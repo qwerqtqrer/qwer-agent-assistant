@@ -22,8 +22,8 @@ class ChatResult:
 
 
 class ChatService:
-    def __init__(self):
-        self._agent = None
+    def __init__(self, agent=None):
+        self._agent = agent
 
     @property
     def agent(self):
@@ -56,7 +56,10 @@ class ChatService:
         save_message(sid, "user", message)
 
         result = self.agent.invoke(
-            {"messages": [*history, HumanMessage(content=message)]}
+            {
+                "messages": [*history, HumanMessage(content=message)],
+                "use_rag": use_rag,
+            }
         )
         answer = str(result["messages"][-1].content)
         sources = list(result.get("sources") or [])
@@ -69,18 +72,22 @@ class ChatService:
             rag_context=str(result.get("rag_context") or ""),
         )
 
-    def stream(self, session_id: Optional[str], message: str) -> Iterator[dict]:
+    def stream(self, session_id: Optional[str], message: str, use_rag: bool = True) -> Iterator[dict]:
         """流式对话：边推理边产出 token，结束后保存会话。"""
         sid = session_id or create_session()
         history = self._history_messages(sid)
         save_message(sid, "user", message)
 
         answer_parts = []
+        last_agent_answer = ""
         sources: List[str] = []
         tool_steps = 0
         try:
             events = self.agent.stream(
-                {"messages": [*history, HumanMessage(content=message)]},
+                {
+                    "messages": [*history, HumanMessage(content=message)],
+                    "use_rag": use_rag,
+                },
                 stream_mode=["messages", "updates"],
             )
             for mode, payload in events:
@@ -95,6 +102,10 @@ class ChatService:
                             sources = list(update.get("sources") or [])
                         elif node == "tools":
                             tool_steps += 1
+                        elif node == "agent":
+                            for item in update.get("messages") or []:
+                                if isinstance(item, AIMessage) and item.content:
+                                    last_agent_answer = str(item.content)
         except Exception as exc:
             logger.exception("Agent 流式调用失败")
             answer = f"抱歉，我暂时无法处理您的请求。错误：{exc}"
@@ -104,6 +115,18 @@ class ChatService:
             return
 
         answer = "".join(answer_parts).strip()
+        if not answer and last_agent_answer:
+            answer = last_agent_answer.strip()
+        if not answer and tool_steps == 0:
+            fallback = self.agent.invoke(
+                {
+                    "messages": [*history, HumanMessage(content=message)],
+                    "use_rag": use_rag,
+                }
+            )
+            answer = str(fallback["messages"][-1].content).strip()
+            if answer:
+                yield {"type": "token", "content": answer}
         if not answer:
             answer = "抱歉，我暂时无法处理您的请求，请稍后再试。"
         save_message(sid, "assistant", answer)

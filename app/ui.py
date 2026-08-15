@@ -31,7 +31,7 @@ CSS = """
 
 
 def build_ui():
-    with gr.Blocks(title="智慧校园 AI 智能体助手", theme=gr.themes.Soft(), css=CSS) as demo:
+    with gr.Blocks(title="智慧校园 AI 智能体助手") as demo:
         session_state = gr.State()
 
         with gr.Tabs():
@@ -142,6 +142,7 @@ def build_ui():
             session_state,
             session_dropdown,
             sources_md,
+            file_doc,
         ]
 
         chat_input.submit(fn=chat_fn, inputs=submit_inputs, outputs=submit_outputs)

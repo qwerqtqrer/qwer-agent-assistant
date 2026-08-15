@@ -5,7 +5,7 @@ import gradio as gr
 from app.core.logging import setup_logging
 from app.rag import ensure_knowledge_base
 from app.session import init_tables
-from app.ui import build_ui
+from app.ui import CSS, build_ui
 
 
 def main():
@@ -14,7 +14,7 @@ def main():
     ensure_knowledge_base()
     demo = build_ui()
     demo.queue()
-    demo.launch(debug=False)
+    demo.launch(debug=False, theme=gr.themes.Soft(), css=CSS)
 
 
 if __name__ == "__main__":

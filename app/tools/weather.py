@@ -28,24 +28,28 @@ def _beautify_weather(input_data):
     if not config.llm_configured:
         return _fallback_text(input_data)
 
-    instruction = "任务：查询指定城市的天气情况"
-    example = (
-        "示例：{'location': '长沙', 'date': '2026-07-14 15:01:46', 'weather': '晴', "
-        "'temperature': '37°C', 'humidity': '55%'}\n"
-        "输出：\n当前城市：湖南省长沙市\n当前时间：2026-07-14 15:01:46\n"
-        "当前天气：晴天\n当前温度：37°C\n湿度：55%\n出行建议：不建议出行。如必要出行，注意防晒。"
-    )
-    output_format = (
-        "按下面格式进行输出：\n当前城市：\n当前时间：\n当前天气：\n当前温度：\n湿度：\n出行建议："
-    )
-    prompt = f"{instruction}\n{example}\n{input_data}\n{output_format}"
-    resp = build_llm().invoke(
-        [
-            ("system", "你是一个有用的AI助手。"),
-            ("user", prompt),
-        ]
-    )
-    return str(resp.content)
+    try:
+        instruction = "任务：查询指定城市的天气情况"
+        example = (
+            "示例：{'location': '长沙', 'date': '2026-07-14 15:01:46', 'weather': '晴', "
+            "'temperature': '37°C', 'humidity': '55%'}\n"
+            "输出：\n当前城市：湖南省长沙市\n当前时间：2026-07-14 15:01:46\n"
+            "当前天气：晴天\n当前温度：37°C\n湿度：55%\n出行建议：不建议出行。如必要出行，注意防晒。"
+        )
+        output_format = (
+            "按下面格式进行输出：\n当前城市：\n当前时间：\n当前天气：\n当前温度：\n湿度：\n出行建议："
+        )
+        prompt = f"{instruction}\n{example}\n{input_data}\n{output_format}"
+        resp = build_llm().invoke(
+            [
+                ("system", "你是一个有用的AI助手。"),
+                ("user", prompt),
+            ]
+        )
+        return str(resp.content)
+    except Exception:
+        logger.exception("天气美化输出失败，回退为原始数据")
+        return _fallback_text(input_data)
 
 
 @tool

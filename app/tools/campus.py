@@ -10,11 +10,14 @@ from app.database import execute_query
 logger = get_logger("app.tools.campus")
 
 
-def _beautify(prompt: str) -> str:
-    """调用 LLM 把原始数据整理为美观输出。"""
-    llm = build_llm()
-    resp = llm.invoke([("user", prompt)])
-    return str(resp.content)
+def _beautify(prompt: str, fallback: str = "") -> str:
+    """调用 LLM 把原始数据整理为美观输出，失败时回退到原始数据。"""
+    try:
+        resp = build_llm().invoke([("user", prompt)])
+        return str(resp.content)
+    except Exception:
+        logger.exception("LLM 格式化失败，回退为原始数据")
+        return fallback or "查询成功，但格式化输出失败。"
 
 
 def _demo_notice(feature: str) -> str:
@@ -40,7 +43,8 @@ def query_course_schedule(student_name: str) -> str:
 
     return _beautify(
         f"以下是学生 {student_name} 的课程表原始数据，请将其整理为美观的课程表格式：\n\n{result}\n\n"
-        '请按「星期X」分组，格式：\n📅 星期一\n  1. 课程名 (08:00-09:40 @ 教室)\n'
+        '请按「星期X」分组，格式：\n📅 星期一\n  1. 课程名 (08:00-09:40 @ 教室)\n',
+        fallback=result,
     )
 
 
@@ -63,7 +67,8 @@ def query_grade(student_name: str) -> str:
 
     return _beautify(
         f"以下是学生 {student_name} 的成绩原始数据，请整理为美观的格式：\n\n{result}\n\n"
-        "要求：\n- 按学期分组\n- 显示每门课分数\n- 计算平均分\n"
+        "要求：\n- 按学期分组\n- 显示每门课分数\n- 计算平均分\n",
+        fallback=result,
     )
 
 
@@ -91,5 +96,6 @@ def query_campus_notice(keyword: str = "") -> str:
 
     return _beautify(
         f"以下是校园公告原始数据，请整理为美观的列表：\n\n{result}\n\n"
-        "格式要求：\n📢 [标题]\n   内容概要：...\n   发布时间：...\n"
+        "格式要求：\n📢 [标题]\n   内容概要：...\n   发布时间：...\n",
+        fallback=result,
     )

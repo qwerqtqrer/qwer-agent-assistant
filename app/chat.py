@@ -1,5 +1,7 @@
 """Gradio 对话逻辑：图片/文档预处理 + ChatService 编排。"""
 
+import os
+
 import gradio as gr
 
 from app.core.config import config
@@ -34,10 +36,13 @@ def chat_fn(chat, image, camera_image, chatbot, session_id, file_doc):
             if image_desc:
                 extra_parts.append(f"图片识别结果：{image_desc}")
 
-            pil_info = save_pil_image(image)
-            yolo_result = yolo_info.get_yolo_info(config.yolo_model_path, pil_info["full_path"])
-            if yolo_result:
-                extra_parts.append(f"YOLO 检测结果：{yolo_result}")
+            if os.path.exists(config.yolo_model_path):
+                pil_info = save_pil_image(image)
+                yolo_result = yolo_info.get_yolo_info(config.yolo_model_path, pil_info["full_path"])
+                if yolo_result:
+                    extra_parts.append(f"YOLO 检测结果：{yolo_result}")
+            else:
+                gr.Warning(f"未找到 YOLO 模型文件（{config.yolo_model_path}），已跳过目标检测")
         except Exception as exc:
             logger.warning("图片处理失败：%s", exc)
             gr.Warning(f"图片处理失败：{exc}")
@@ -61,14 +66,23 @@ def chat_fn(chat, image, camera_image, chatbot, session_id, file_doc):
     chatbot.append({"role": "user", "content": user_display})
 
     try:
-        result = chat_service.run(session_id, full_message)
+        result = chat_service.run(session_id, full_message, use_rag=True)
     except Exception as exc:
         logger.exception("Agent 调用失败")
         result = None
         answer = f"抱歉，我暂时无法处理您的请求，请稍后再试。错误：{exc}"
         chatbot.append({"role": "assistant", "content": answer})
         choices = _refresh_sessions()
-        return "", None, None, chatbot, session_id, gr.Dropdown(choices=choices, value=session_id), ""
+        return (
+            "",
+            None,
+            None,
+            chatbot,
+            session_id,
+            gr.Dropdown(choices=choices, value=session_id),
+            "",
+            None,
+        )
 
     chatbot.append({"role": "assistant", "content": result.answer})
     sources_md = _sources_markdown(result.sources)
@@ -81,6 +95,7 @@ def chat_fn(chat, image, camera_image, chatbot, session_id, file_doc):
         result.session_id,
         gr.Dropdown(choices=choices, value=result.session_id),
         sources_md,
+        None,
     )
 
 
@@ -94,7 +109,11 @@ def _sources_markdown(sources) -> str:
 
 
 def _refresh_sessions():
-    return [(s["title"], s["id"]) for s in load_sessions()]
+    try:
+        return [(s["title"], s["id"]) for s in load_sessions()]
+    except Exception:
+        logger.warning("会话列表加载失败，界面以空列表启动", exc_info=True)
+        return []
 
 
 def new_session():

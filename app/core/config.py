@@ -77,6 +77,7 @@ class Settings(BaseSettings):
     upload_cache_dir: str = "./upload_cache"
     doc_max_length: int = 30000
     yolo_model_path: str = "./yolo11n.pt"
+    max_upload_size_mb: int = 50
 
     @property
     def is_demo_mode(self) -> bool:

@@ -55,3 +55,33 @@ def test_chat_sse():
         body = "".join(response.iter_text())
     assert '"type": "done"' in body
     assert "guide.md" in body
+
+
+def test_upload_document_api():
+    ensure_knowledge_base()
+    client = _client()
+    response = client.post(
+        "/api/rag/documents",
+        files={
+            "file": (
+                "hello.txt",
+                "图书馆开放时间为 9:00 至 17:00。".encode("utf-8"),
+                "text/plain",
+            )
+        },
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["name"] == "hello.txt"
+    assert data["chunk_count"] >= 1
+
+    deleted = client.delete(f"/api/rag/documents/{data['document_id']}")
+    assert deleted.status_code == 200
+
+
+def test_cors_headers():
+    client = _client()
+    response = client.get("/api/health", headers={"Origin": "http://example.com"})
+    assert response.status_code == 200
+    assert response.headers.get("access-control-allow-origin") == "*"
+    assert response.headers.get("access-control-allow-credentials") != "true"

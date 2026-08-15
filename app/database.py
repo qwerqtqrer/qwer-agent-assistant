@@ -1,6 +1,7 @@
 """数据库访问层：MySQL 与 SQLite 演示模式双后端。"""
 
 import sqlite3
+import re
 from pathlib import Path
 from typing import Optional, Sequence
 
@@ -11,6 +12,8 @@ from app.core.errors import DatabaseError
 from app.core.logging import get_logger
 
 logger = get_logger("app.database")
+
+SENSITIVE_COLUMN_KEYWORDS = ("password", "passwd", "token", "secret", "mail_pass", "api_key")
 
 
 def is_demo_mode() -> bool:
@@ -59,6 +62,16 @@ def _execute(cursor, sql: str, params: Optional[Sequence] = None):
 
 
 def _rows_to_text(cols, rows, limit: int) -> str:
+    lower_cols = [str(col).lower() for col in cols]
+    redact_indices = {
+        index
+        for index, col in enumerate(lower_cols)
+        if any(keyword in col for keyword in SENSITIVE_COLUMN_KEYWORDS)
+    }
+    rows = [
+        tuple("***" if index in redact_indices else value for index, value in enumerate(row))
+        for row in rows
+    ]
     limited = rows[:limit]
     res = [" | ".join(cols), "-" * 50]
     for row in limited:
@@ -113,8 +126,14 @@ def execute_raw(sql: str, params: Optional[Sequence] = None) -> str:
         return ""
 
     stripped = sql.strip().lower()
-    if config.sql_read_only and not stripped.startswith(("select", "with")):
-        return "错误：系统处于只读模式，仅允许 SELECT 查询。"
+    if config.sql_read_only:
+        if re.search(
+            r"\b(insert|update|delete|drop|alter|create|truncate|grant|revoke|replace)\b",
+            stripped,
+        ):
+            return "错误：系统处于只读模式，仅允许 SELECT 查询。"
+        if not stripped.startswith(("select", "with")):
+            return "错误：系统处于只读模式，仅允许 SELECT 查询。"
     if stripped.startswith(("select", "with")):
         return execute_query(sql, params)
     return execute_update(sql, params)

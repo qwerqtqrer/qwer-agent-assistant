@@ -19,6 +19,7 @@ class AgentState(TypedDict):
     messages: Annotated[list, add_messages]
     rag_context: str
     sources: List[str]
+    use_rag: bool
 
 
 def _system_prompt(rag_context: str) -> str:
@@ -36,6 +37,8 @@ def _system_prompt(rag_context: str) -> str:
 
 
 def _default_retriever(state: AgentState) -> dict:
+    if not state.get("use_rag", True):
+        return {"rag_context": "", "sources": []}
     query = ""
     for msg in reversed(state["messages"]):
         if isinstance(msg, HumanMessage):

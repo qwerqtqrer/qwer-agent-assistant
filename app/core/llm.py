@@ -1,10 +1,10 @@
 """LLM 工厂：优先使用配置的 GLM 接口，未配置时提供可运行的演示模型。"""
 
-from typing import List, Optional
+from typing import Iterator, List, Optional
 
 from langchain_core.language_models.chat_models import BaseChatModel
-from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
-from langchain_core.outputs import ChatGeneration, ChatResult
+from langchain_core.messages import AIMessage, AIMessageChunk, BaseMessage, HumanMessage, SystemMessage
+from langchain_core.outputs import ChatGeneration, ChatGenerationChunk, ChatResult
 from langchain_openai import ChatOpenAI
 
 from app.core.config import config
@@ -32,6 +32,13 @@ class DemoChatModel(BaseChatModel):
         text = self._render(messages)
         message = AIMessage(content=text)
         return ChatResult(generations=[ChatGeneration(message=message)])
+
+    def _stream(self, messages, stop=None, run_manager=None, **kwargs) -> Iterator[ChatGenerationChunk]:  # noqa: ANN001
+        text = self._render(messages)
+        chunk = ChatGenerationChunk(message=AIMessageChunk(content=text))
+        if run_manager:
+            run_manager.on_llm_new_token(text, chunk=chunk)
+        yield chunk
 
     def _render(self, messages: List[BaseMessage]) -> str:
         rag_context = ""

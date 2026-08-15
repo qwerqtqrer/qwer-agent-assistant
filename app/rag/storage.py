@@ -3,6 +3,7 @@
 import json
 import math
 import sqlite3
+import threading
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -40,6 +41,7 @@ class RagStore:
         self._conn = sqlite3.connect(self.db_path, check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
         self._conn.execute("PRAGMA foreign_keys=ON")
+        self._lock = threading.RLock()
         self._init_schema()
 
     def _init_schema(self) -> None:
@@ -82,53 +84,59 @@ class RagStore:
         chunks: List[str],
         embeddings: Optional[List[Optional[List[float]]]] = None,
     ) -> str:
-        doc_id = uuid.uuid4().hex
-        with self._conn:
-            self._conn.execute(
-                "INSERT INTO documents (id, name, source, created_at) VALUES (?, ?, ?, ?)",
-                (doc_id, name, source, _now()),
-            )
-            for index, content in enumerate(chunks):
-                embedding = (
-                    EmbeddingService.serialize(embeddings[index])
-                    if embeddings and index < len(embeddings)
-                    else None
-                )
+        with self._lock:
+            doc_id = uuid.uuid4().hex
+            with self._conn:
                 self._conn.execute(
-                    "INSERT INTO chunks (document_id, chunk_index, content, embedding) VALUES (?, ?, ?, ?)",
-                    (doc_id, index, content, embedding),
+                    "INSERT INTO documents (id, name, source, created_at) VALUES (?, ?, ?, ?)",
+                    (doc_id, name, source, _now()),
                 )
-        return doc_id
+                for index, content in enumerate(chunks):
+                    embedding = (
+                        EmbeddingService.serialize(embeddings[index])
+                        if embeddings and index < len(embeddings)
+                        else None
+                    )
+                    self._conn.execute(
+                        "INSERT INTO chunks (document_id, chunk_index, content, embedding) VALUES (?, ?, ?, ?)",
+                        (doc_id, index, content, embedding),
+                    )
+            return doc_id
 
     def delete_document(self, doc_id: str) -> bool:
-        with self._conn:
-            cursor = self._conn.execute("DELETE FROM documents WHERE id = ?", (doc_id,))
-            return cursor.rowcount > 0
+        with self._lock:
+            with self._conn:
+                cursor = self._conn.execute("DELETE FROM documents WHERE id = ?", (doc_id,))
+                return cursor.rowcount > 0
 
     def list_documents(self) -> List[dict]:
-        rows = self._conn.execute(
-            """
-            SELECT d.id, d.name, d.source, d.created_at, COUNT(c.id) AS chunk_count
-            FROM documents d
-            LEFT JOIN chunks c ON c.document_id = d.id
-            GROUP BY d.id
-            ORDER BY d.created_at DESC
-            """
-        ).fetchall()
-        return [dict(row) for row in rows]
+        with self._lock:
+            rows = self._conn.execute(
+                """
+                SELECT d.id, d.name, d.source, d.created_at, COUNT(c.id) AS chunk_count
+                FROM documents d
+                LEFT JOIN chunks c ON c.document_id = d.id
+                GROUP BY d.id
+                ORDER BY d.created_at DESC
+                """
+            ).fetchall()
+            return [dict(row) for row in rows]
 
     def count_chunks(self) -> int:
-        row = self._conn.execute("SELECT COUNT(*) AS n FROM chunks").fetchone()
-        return int(row["n"])
+        with self._lock:
+            row = self._conn.execute("SELECT COUNT(*) AS n FROM chunks").fetchone()
+            return int(row["n"])
 
     def has_document(self, name: str) -> bool:
-        row = self._conn.execute(
-            "SELECT 1 FROM documents WHERE name = ? LIMIT 1", (name,)
-        ).fetchone()
-        return row is not None
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT 1 FROM documents WHERE name = ? LIMIT 1", (name,)
+            ).fetchone()
+            return row is not None
 
     def _search_lexical(self, query: str, top_k: int) -> List[dict]:
         if len(query) < 3:
+            escaped = query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
             rows = self._conn.execute(
                 """
                 SELECT c.id, c.document_id, d.name AS document_name, c.chunk_index, c.content
@@ -138,7 +146,7 @@ class RagStore:
                 ORDER BY c.id
                 LIMIT ?
                 """,
-                (f"%{query}%", top_k),
+                (f"%{escaped}%", top_k),
             ).fetchall()
             return [
                 {**dict(row), "score": 1.0, "matched_by": "keyword"}
@@ -208,20 +216,22 @@ class RagStore:
         top_k: Optional[int] = None,
         vector: Optional[List[float]] = None,
     ) -> List[dict]:
-        top_k = top_k or config.rag_top_k
-        query = (query or "").strip()
-        if not query:
-            return []
+        with self._lock:
+            top_k = top_k or config.rag_top_k
+            query = (query or "").strip()
+            if not query:
+                return []
 
-        lexical = self._search_lexical(query, top_k)
-        vector_hits = self._search_vector(vector, top_k) if vector else []
+            lexical = self._search_lexical(query, top_k)
+            vector_hits = self._search_vector(vector, top_k) if vector else []
 
-        merged = {}
-        for item in [*lexical, *vector_hits]:
-            item_id = item["id"]
-            if item_id not in merged or item["score"] > merged[item_id]["score"]:
-                merged[item_id] = item
-        return sorted(merged.values(), key=lambda item: item["score"], reverse=True)[:top_k]
+            merged = {}
+            for item in [*lexical, *vector_hits]:
+                item_id = item["id"]
+                if item_id not in merged or item["score"] > merged[item_id]["score"]:
+                    merged[item_id] = item
+            return sorted(merged.values(), key=lambda item: item["score"], reverse=True)[:top_k]
 
     def close(self) -> None:
-        self._conn.close()
+        with self._lock:
+            self._conn.close()

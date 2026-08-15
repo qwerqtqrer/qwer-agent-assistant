@@ -81,14 +81,22 @@ async def upload_document(file: UploadFile = File(...)):
     if ext not in _ALLOWED_EXTS:
         raise HTTPException(status_code=400, detail=f"不支持的文件类型：{ext}")
 
+    content = await file.read()
+    max_bytes = config.max_upload_size_mb * 1024 * 1024
+    if len(content) > max_bytes:
+        raise HTTPException(
+            status_code=413,
+            detail=f"文件过大，最大支持 {config.max_upload_size_mb}MB",
+        )
+
     target_dir = Path(config.upload_cache_dir)
     target_dir.mkdir(parents=True, exist_ok=True)
     target = target_dir / f"{uuid.uuid4().hex}{ext}"
-    target.write_bytes(await file.read())
-
     try:
+        target.write_bytes(content)
         return ingest_file(str(target), name=filename)
     except Exception as exc:
+        target.unlink(missing_ok=True)
         raise HTTPException(status_code=400, detail=f"文档解析失败：{exc}") from exc
 
 

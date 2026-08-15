@@ -18,7 +18,7 @@ def create_app(mount_ui: bool = True) -> FastAPI:
     app.add_middleware(
         CORSMiddleware,
         allow_origins=["*"],
-        allow_credentials=True,
+        allow_credentials=False,
         allow_methods=["*"],
         allow_headers=["*"],
     )
@@ -31,8 +31,15 @@ def create_app(mount_ui: bool = True) -> FastAPI:
     if mount_ui:
         import gradio as gr
 
-        from app.ui import build_ui
+        from app.ui import CSS, build_ui
 
         demo = build_ui()
-        gr.mount_gradio_app(app, demo, path="/ui")
+        gr.mount_gradio_app(
+            app,
+            demo,
+            path="/ui",
+            theme=gr.themes.Soft(),
+            css=CSS,
+            ssr_mode=False,
+        )
     return app

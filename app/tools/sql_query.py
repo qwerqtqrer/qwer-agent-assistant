@@ -43,7 +43,7 @@ oa_demo.reimbursements (报销表):
     review_comment (text, 审核意见)
 
 school.student (学校账号):
-    id (int, 主键), username (varchar, 用户名), password (varchar, 密码)
+    id (int, 主键), username (varchar, 用户名), password (varchar, 敏感字段，禁止查询)
 
 school.courses (课程表):
     id (int, 主键), student_name (varchar, 学生姓名), course_name (varchar, 课程名称),
@@ -70,6 +70,7 @@ SQL_SYSTEM_PROMPT = f"""你是一个专业的MySQL 8.0 SQL生成器，**只返�
 2. 绝对不返回任何自然语言解释、注释或说明
 3. 禁止返回中文内容
 4. 默认只允许 SELECT / WITH 查询
+5. 禁止查询或返回 password、token、secret 等敏感字段；确需判断时只返回是否存在该字段
 """
 
 
