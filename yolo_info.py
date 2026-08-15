@@ -1,5 +1,8 @@
 """YOLO 目标检测：模型缓存 + 结构化结果输出。"""
 
+import os
+from pathlib import Path
+
 import cv2
 
 from app.core.logging import get_logger
@@ -7,8 +10,19 @@ from app.core.logging import get_logger
 logger = get_logger("yolo_info")
 _model_cache = {}
 
+_YOLO_CONFIG_DIR = str(Path(__file__).resolve().parent / "data" / "ultralytics")
+
+
+def _ensure_ultralytics_config_dir() -> None:
+    """把 Ultralytics 配置目录固定到项目 data 目录，避免读取用户目录失败。"""
+    if os.environ.get("YOLO_CONFIG_DIR"):
+        return
+    os.environ["YOLO_CONFIG_DIR"] = _YOLO_CONFIG_DIR
+    Path(_YOLO_CONFIG_DIR).mkdir(parents=True, exist_ok=True)
+
 
 def get_yolo_info(model_path, img_path):
+    _ensure_ultralytics_config_dir()
     from ultralytics import YOLO
 
     if model_path not in _model_cache:
