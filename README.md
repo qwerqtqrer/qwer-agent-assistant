@@ -92,6 +92,7 @@ Compose 会启动 MySQL 并执行初始化脚本，应用监听 `8000` 端口。
 | GET / DELETE | `/api/rag/documents` | 文档列表 / 删除 |
 | POST | `/api/rag/search` | 知识库检索测试 |
 | POST | `/api/rag/seed` | 初始化示例知识库 |
+| POST | `/api/rag/restore` | 恢复被删除的示例知识库文档 |
 
 SSE 事件示例：
 

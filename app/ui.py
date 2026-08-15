@@ -11,6 +11,7 @@ from app.chat import (
     delete_current_session,
     delete_kb_document,
     new_session,
+    restore_deleted_kb,
     search_kb,
     seed_kb,
     switch_session,
@@ -117,13 +118,18 @@ def build_ui():
                             file_types=[".pdf", ".docx", ".xlsx", ".txt", ".md"],
                         )
                         seed_btn = gr.Button("初始化示例知识库", variant="secondary")
+                        restore_btn = gr.Button("恢复已删除示例", variant="secondary")
                         kb_status = gr.Markdown("尚未上传文档。")
 
                     with gr.Column(scale=2):
                         gr.Markdown("### 知识库列表")
                         kb_list = gr.Markdown("知识库为空。")
                         with gr.Row():
-                            delete_id_input = gr.Textbox(label="要删除的文档 ID", scale=3)
+                            delete_id_input = gr.Textbox(
+                                label="要删除的文档 ID（列表中的完整 ID）",
+                                placeholder="可粘贴完整 ID，或输入唯一前缀",
+                                scale=3,
+                            )
                             delete_doc_btn = gr.Button("删除文档", variant="stop", scale=1)
                         gr.Markdown("---")
                         gr.Markdown("### 检索测试")
@@ -178,6 +184,7 @@ def build_ui():
             outputs=[kb_status, kb_list],
         )
         seed_btn.click(fn=seed_kb, outputs=[kb_status, kb_list])
+        restore_btn.click(fn=restore_deleted_kb, outputs=[kb_status, kb_list])
         delete_doc_btn.click(
             fn=delete_kb_document,
             inputs=[delete_id_input],

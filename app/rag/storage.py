@@ -61,6 +61,10 @@ class RagStore:
                 embedding TEXT,
                 FOREIGN KEY (document_id) REFERENCES documents(id) ON DELETE CASCADE
             );
+            CREATE TABLE IF NOT EXISTS deleted_docs (
+                name TEXT PRIMARY KEY,
+                deleted_at TEXT NOT NULL
+            );
             CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts USING fts5(
                 content,
                 content='chunks',
@@ -106,7 +110,15 @@ class RagStore:
     def delete_document(self, doc_id: str) -> bool:
         with self._lock:
             with self._conn:
+                row = self._conn.execute(
+                    "SELECT name FROM documents WHERE id = ?", (doc_id,)
+                ).fetchone()
                 cursor = self._conn.execute("DELETE FROM documents WHERE id = ?", (doc_id,))
+                if cursor.rowcount > 0 and row:
+                    self._conn.execute(
+                        "INSERT OR IGNORE INTO deleted_docs (name, deleted_at) VALUES (?, ?)",
+                        (row["name"], _now()),
+                    )
                 return cursor.rowcount > 0
 
     def list_documents(self) -> List[dict]:
@@ -122,6 +134,15 @@ class RagStore:
             ).fetchall()
             return [dict(row) for row in rows]
 
+    def find_document_by_prefix(self, prefix: str) -> List[dict]:
+        """按 ID 前缀查找文档，用于界面删除时兼容短 ID。"""
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT id, name FROM documents WHERE id LIKE ? ORDER BY id LIMIT 20",
+                (f"{prefix}%",),
+            ).fetchall()
+            return [dict(row) for row in rows]
+
     def count_chunks(self) -> int:
         with self._lock:
             row = self._conn.execute("SELECT COUNT(*) AS n FROM chunks").fetchone()
@@ -133,6 +154,28 @@ class RagStore:
                 "SELECT 1 FROM documents WHERE name = ? LIMIT 1", (name,)
             ).fetchone()
             return row is not None
+
+    def is_deleted(self, name: str) -> bool:
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT 1 FROM deleted_docs WHERE name = ? LIMIT 1", (name,)
+            ).fetchone()
+            return row is not None
+
+    def list_deleted(self) -> List[str]:
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT name FROM deleted_docs ORDER BY deleted_at DESC"
+            ).fetchall()
+            return [row["name"] for row in rows]
+
+    def restore_document(self, name: str) -> bool:
+        with self._lock:
+            with self._conn:
+                cursor = self._conn.execute(
+                    "DELETE FROM deleted_docs WHERE name = ?", (name,)
+                )
+                return cursor.rowcount > 0
 
     def _search_lexical(self, query: str, top_k: int) -> List[dict]:
         if len(query) < 3:

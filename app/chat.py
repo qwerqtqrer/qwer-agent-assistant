@@ -33,13 +33,18 @@ def chat_fn(chat, image, camera_image, chatbot, session_id, file_doc):
     """核心对话函数。"""
     session_id = session_id or create_session("新会话")
     image = camera_image if camera_image is not None else image
+    chat = (chat or "").strip()
 
     extra_parts = []
+    image_path = None
 
     if image is not None:
         try:
             from app.image_utils import pre_recognize_image, save_pil_image
             import yolo_info
+
+            pil_info = save_pil_image(image)
+            image_path = pil_info["full_path"]
 
             image_desc = pre_recognize_image(image)
             if image_desc:
@@ -47,8 +52,7 @@ def chat_fn(chat, image, camera_image, chatbot, session_id, file_doc):
 
             yolo_path = _resolve_yolo_model()
             if yolo_path:
-                pil_info = save_pil_image(image)
-                yolo_result = yolo_info.get_yolo_info(yolo_path, pil_info["full_path"])
+                yolo_result = yolo_info.get_yolo_info(yolo_path, image_path)
                 if yolo_result:
                     extra_parts.append(f"YOLO 检测结果：{yolo_result}")
             else:
@@ -72,11 +76,23 @@ def chat_fn(chat, image, camera_image, chatbot, session_id, file_doc):
     if extra_parts:
         full_message = "\n\n".join(extra_parts) + f"\n\n用户的问题：{chat}"
 
-    user_display = chat + ("\n\n[📷 已附带图片]" if image is not None else "")
-    chatbot.append({"role": "user", "content": user_display})
+    user_content = []
+    if chat:
+        user_content.append({"type": "text", "text": chat})
+    if image_path:
+        user_content.append({"type": "image", "path": image_path})
+    chatbot.append({"role": "user", "content": user_content or chat})
+
+    extra_json = {"image_path": image_path} if image_path else None
 
     try:
-        result = chat_service.run(session_id, full_message, use_rag=True)
+        result = chat_service.run(
+            session_id,
+            full_message,
+            use_rag=True,
+            display_text=chat,
+            extra_json=extra_json,
+        )
     except Exception as exc:
         logger.exception("Agent 调用失败")
         result = None
@@ -136,8 +152,21 @@ def switch_session(session_id):
     if not session_id:
         return session_id, [], ""
     msgs = load_messages(session_id)
-    chatbot = [{"role": m["role"], "content": m["content"]} for m in msgs]
+    chatbot = [_chatbot_message(m) for m in msgs]
     return session_id, chatbot, ""
+
+
+def _chatbot_message(message: dict):
+    """把持久化消息还原为 Gradio 气泡，图片随 extra_json 一并展示。"""
+    extra = message.get("extra_json") or {}
+    image_path = extra.get("image_path")
+    if image_path and os.path.exists(image_path):
+        content = []
+        if message["content"]:
+            content.append({"type": "text", "text": message["content"]})
+        content.append({"type": "image", "path": image_path})
+        return {"role": message["role"], "content": content}
+    return {"role": message["role"], "content": message["content"]}
 
 
 def delete_current_session(session_id):
@@ -166,20 +195,38 @@ def seed_kb():
     return f"示例知识库初始化完成：新增 {result['seeded']} 个文档", _list_kb_documents()
 
 
+def restore_deleted_kb():
+    from app.rag import restore_seed_documents
+
+    result = restore_seed_documents()
+    return (
+        f"已恢复 {result['restored']} 个被删除的示例文档，本次新增入库 {result['seeded']} 个",
+        _list_kb_documents(),
+    )
+
+
 def _list_kb_documents():
     docs = get_store().list_documents()
     if not docs:
         return "知识库为空。"
     lines = ["| ID | 文档 | 分块数 | 入库时间 |", "|---|---|---|---|"]
     for doc in docs:
-        lines.append(f"| `{doc['id'][:8]}` | {doc['name']} | {doc['chunk_count']} | {doc['created_at'][:19]} |")
+        lines.append(f"| `{doc['id']}` | {doc['name']} | {doc['chunk_count']} | {doc['created_at'][:19]} |")
     return "\n".join(lines)
 
 
 def delete_kb_document(doc_id):
     if not doc_id or not doc_id.strip():
-        return "请先粘贴要删除的文档 ID", _list_kb_documents()
-    deleted = get_store().delete_document(doc_id.strip())
+        return "请先粘贴知识库列表中的完整文档 ID", _list_kb_documents()
+    doc_id = doc_id.strip()
+    store = get_store()
+    deleted = store.delete_document(doc_id)
+    if not deleted:
+        matches = store.find_document_by_prefix(doc_id)
+        if len(matches) == 1:
+            deleted = store.delete_document(matches[0]["id"])
+        elif len(matches) > 1:
+            return f"该 ID 前缀匹配到 {len(matches)} 个文档，请使用列表中的完整 ID", _list_kb_documents()
     return ("文档已删除" if deleted else "文档不存在"), _list_kb_documents()
 
 

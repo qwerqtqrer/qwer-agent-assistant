@@ -11,7 +11,7 @@ from fastapi.responses import StreamingResponse
 from app.api.schemas import ChatRequest, SearchRequest
 from app.core.config import config
 from app.database import ping
-from app.rag import ensure_knowledge_base, get_embedder, get_store
+from app.rag import ensure_knowledge_base, get_embedder, get_store, restore_seed_documents
 from app.rag.ingest import ingest_file
 from app.rag.retriever import search
 from app.services import chat_service
@@ -122,3 +122,8 @@ def search_documents(request: SearchRequest):
 @router.post("/rag/seed")
 def seed_knowledge_base_endpoint():
     return ensure_knowledge_base()
+
+
+@router.post("/rag/restore")
+def restore_seed_documents_endpoint():
+    return restore_seed_documents()

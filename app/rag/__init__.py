@@ -2,7 +2,7 @@
 
 from app.rag.chunker import split_text
 from app.rag.embedding import EmbeddingService
-from app.rag.ingest import ingest_file
+from app.rag.ingest import ingest_file, restore_seed_documents
 from app.rag.retriever import format_context, search
 from app.rag.storage import RagStore
 
@@ -48,6 +48,7 @@ __all__ = [
     "get_store",
     "ingest_file",
     "reset_store",
+    "restore_seed_documents",
     "search",
     "split_text",
 ]

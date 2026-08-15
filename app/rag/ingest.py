@@ -64,7 +64,7 @@ def seed_knowledge_base(
 
     results = []
     for path in sorted(kb_dir.glob("*.md")) + sorted(kb_dir.glob("*.txt")):
-        if store.has_document(path.name):
+        if store.has_document(path.name) or store.is_deleted(path.name):
             continue
         try:
             results.append(ingest_file(str(path), name=path.name, store=store, embedder=embedder))
@@ -75,3 +75,19 @@ def seed_knowledge_base(
         "skipped": len(list(kb_dir.glob("*.md"))) + len(list(kb_dir.glob("*.txt"))) - len(results),
         "documents": results,
     }
+
+
+def restore_seed_documents(
+    store: Optional[RagStore] = None,
+    embedder: Optional[EmbeddingService] = None,
+) -> dict:
+    """清除示例文档的删除标记并重新入库，用于显式恢复。"""
+    from app.rag import get_embedder, get_store
+
+    store = store or get_store()
+    embedder = embedder or get_embedder()
+    deleted = store.list_deleted()
+    for name in deleted:
+        store.restore_document(name)
+    result = seed_knowledge_base(store=store, embedder=embedder)
+    return {"restored": len(deleted), **result}

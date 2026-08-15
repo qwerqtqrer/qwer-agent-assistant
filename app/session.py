@@ -1,5 +1,6 @@
 """数据库持久化会话管理（MySQL / SQLite 双后端）。"""
 
+import json
 import uuid
 
 from app.core.config import config
@@ -86,13 +87,27 @@ def load_messages(session_id: str):
         "WHERE session_id = %s ORDER BY id ASC",
         (session_id,),
     )
-    return [
-        {"role": row[0], "content": row[1] if row[1] else ""}
-        for row in rows
-    ]
+    messages = []
+    for row in rows:
+        extra = None
+        if row[2]:
+            try:
+                extra = json.loads(row[2])
+            except (TypeError, ValueError):
+                extra = None
+        messages.append(
+            {
+                "role": row[0],
+                "content": row[1] if row[1] else "",
+                "extra_json": extra,
+            }
+        )
+    return messages
 
 
 def save_message(session_id: str, role: str, content: str, extra_json=None):
+    if isinstance(extra_json, dict):
+        extra_json = json.dumps(extra_json, ensure_ascii=False)
     execute_update(
         f"INSERT INTO {_table(MESSAGES_TABLE)} (session_id, role, content, extra_json) "
         "VALUES (%s, %s, %s, %s)",

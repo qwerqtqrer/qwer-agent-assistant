@@ -39,7 +39,9 @@ class ChatService:
         messages = []
         for item in history:
             if item["role"] == "user":
-                messages.append(HumanMessage(content=item["content"]))
+                extra = item.get("extra_json") or {}
+                content = extra.get("prompt") or item["content"]
+                messages.append(HumanMessage(content=content))
             else:
                 messages.append(AIMessage(content=item["content"]))
         return messages
@@ -49,11 +51,21 @@ class ChatService:
         text = (text or "").strip()
         return text[:20] + ("..." if len(text) > 20 else "")
 
-    def run(self, session_id: Optional[str], message: str, use_rag: bool = True) -> ChatResult:
+    def run(
+        self,
+        session_id: Optional[str],
+        message: str,
+        use_rag: bool = True,
+        display_text: Optional[str] = None,
+        extra_json: Optional[dict] = None,
+    ) -> ChatResult:
         """非流式对话：恢复历史 -> 检索 -> Agent 推理 -> 持久化。"""
         sid = session_id or create_session()
         history = self._history_messages(sid)
-        save_message(sid, "user", message)
+        user_text = display_text if display_text is not None else message
+        user_meta = dict(extra_json or {})
+        user_meta.setdefault("prompt", message)
+        save_message(sid, "user", user_text, extra_json=user_meta)
 
         result = self.agent.invoke(
             {
@@ -64,7 +76,7 @@ class ChatService:
         answer = str(result["messages"][-1].content)
         sources = list(result.get("sources") or [])
         save_message(sid, "assistant", answer)
-        rename_session(sid, self._title(message))
+        rename_session(sid, self._title(user_text or message))
         return ChatResult(
             session_id=sid,
             answer=answer,
@@ -72,11 +84,21 @@ class ChatService:
             rag_context=str(result.get("rag_context") or ""),
         )
 
-    def stream(self, session_id: Optional[str], message: str, use_rag: bool = True) -> Iterator[dict]:
+    def stream(
+        self,
+        session_id: Optional[str],
+        message: str,
+        use_rag: bool = True,
+        display_text: Optional[str] = None,
+        extra_json: Optional[dict] = None,
+    ) -> Iterator[dict]:
         """流式对话：边推理边产出 token，结束后保存会话。"""
         sid = session_id or create_session()
         history = self._history_messages(sid)
-        save_message(sid, "user", message)
+        user_text = display_text if display_text is not None else message
+        user_meta = dict(extra_json or {})
+        user_meta.setdefault("prompt", message)
+        save_message(sid, "user", user_text, extra_json=user_meta)
 
         answer_parts = []
         last_agent_answer = ""
@@ -110,7 +132,7 @@ class ChatService:
             logger.exception("Agent 流式调用失败")
             answer = f"抱歉，我暂时无法处理您的请求。错误：{exc}"
             save_message(sid, "assistant", answer)
-            rename_session(sid, self._title(message))
+            rename_session(sid, self._title(user_text or message))
             yield {"type": "error", "content": answer}
             return
 
@@ -130,7 +152,7 @@ class ChatService:
         if not answer:
             answer = "抱歉，我暂时无法处理您的请求，请稍后再试。"
         save_message(sid, "assistant", answer)
-        rename_session(sid, self._title(message))
+        rename_session(sid, self._title(user_text or message))
         yield {
             "type": "done",
             "session_id": sid,
