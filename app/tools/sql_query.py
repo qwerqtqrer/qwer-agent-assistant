@@ -1,12 +1,16 @@
-"""SQL 查询工具——大模型生成 SQL 后执行"""
+"""SQL 查询工具：LLM 生成 SQL 后经安全校验执行。"""
 
 import re
 
 from langchain.tools import tool
-from langchain_core.messages import HumanMessage
 
-from app.config import config
+from app.core.config import config
+from app.core.llm import build_sql_llm
+from app.core.logging import get_logger
 from app.database import execute_raw
+from app.tools.sql_safety import validate_select_sql
+
+logger = get_logger("app.tools.sql")
 
 TABLE_SCHEMA = """
 abc.student (学生信息):
@@ -65,40 +69,33 @@ SQL_SYSTEM_PROMPT = f"""你是一个专业的MySQL 8.0 SQL生成器，**只返�
 1. 跨库查询时使用完整表名，如 `SELECT * FROM abc.student`
 2. 绝对不返回任何自然语言解释、注释或说明
 3. 禁止返回中文内容
+4. 默认只允许 SELECT / WITH 查询
 """
 
 
-def _generate_sql(user_query: str):
-    """让大模型根据用户描述生成 SQL"""
-    from langchain_openai import ChatOpenAI
-
-    llm = ChatOpenAI(
-        model=config.LLM_MODEL,
-        api_key=config.ZHIPUAI_API_KEY,
-        base_url=config.ZHIPUAI_BASE_URL,
-        temperature=0.1,
-        timeout=config.LLM_TIMEOUT,
+def _generate_sql(user_query: str) -> str:
+    """让大模型根据用户描述生成 SQL。"""
+    response = build_sql_llm().invoke(
+        [("system", SQL_SYSTEM_PROMPT), ("user", user_query)]
     )
-    response = llm.invoke([("system", SQL_SYSTEM_PROMPT), ("user", user_query)])
-    sql = response.content.strip()
-    sql = sql.replace("```sql", "").replace("```", "").strip()
-
-    sql_match = re.search(r"(SELECT|INSERT|UPDATE|DELETE).*", sql, re.I | re.DOTALL)
-    if sql_match:
-        sql = sql_match.group(0).strip()
-
-    return sql
+    raw = str(response.content).strip()
+    raw = re.sub(r"```(?:sql)?", "", raw, flags=re.I).strip("` \n")
+    match = re.search(r"(?:SELECT|WITH|INSERT|UPDATE|DELETE)[\s\S]*", raw, re.I)
+    return match.group(0).strip() if match else raw
 
 
 @tool
 def execute_sql_query(query: str) -> str:
-    """执行 SQL 查询并返回结果，支持 SELECT / INSERT / UPDATE / DELETE"""
-    print(f"[工具调用] 执行SQL查询: {query}")
+    """执行 SQL 查询并返回结果（默认只读模式，仅允许 SELECT/WITH）"""
+    if config.is_demo_mode:
+        return "演示模式未接入 MySQL，数据库查询工具不可用；配置 DB 连接后即可使用。"
 
     sql = _generate_sql(query)
+    logger.info("生成 SQL：%s", sql)
 
-    if not sql or not sql.upper().startswith(("SELECT", "INSERT", "UPDATE", "DELETE")):
-        return "错误:无法生成合法的SQL语句,请重新描述您的问题。"
+    ok, message = validate_select_sql(sql, allow_dml=config.sql_allow_dml)
+    if not ok:
+        return message
 
-    print(f"[生成SQL] {sql}")
-    return execute_raw(sql)
+    result = execute_raw(message)
+    return f"[生成的 SQL]\n{message}\n\n{result}"

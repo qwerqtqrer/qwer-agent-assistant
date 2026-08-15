@@ -1,6 +1,11 @@
 .env
+.env.*
+!.env.example
 __pycache__/
+.pytest_cache/
 upload_cache/
+data/
 .vscode/
+.idea/
 *.pyc
 .DS_Store

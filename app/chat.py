@@ -1,132 +1,168 @@
-"""核心对话逻辑"""
+"""Gradio 对话逻辑：图片/文档预处理 + ChatService 编排。"""
 
 import gradio as gr
-from langchain_core.messages import HumanMessage
 
-from app.agent_setup import agent
-from app.config import config
-from app.document import parse_document
-from app.image_utils import build_chat_image_content, pre_recognize_image, save_pil_image
+from app.core.config import config
+from app.core.logging import get_logger
+from app.rag import ensure_knowledge_base, get_embedder, get_store, search
+from app.rag.ingest import ingest_file
+from app.services import chat_service
 from app.session import (
     create_session,
+    delete_session,
     load_messages,
     load_sessions,
     rename_session,
-    save_message,
 )
-import yolo_info
+
+logger = get_logger("app.chat")
 
 
 def chat_fn(chat, image, camera_image, chatbot, session_id, file_doc):
-    """核心对话函数"""
+    """核心对话函数。"""
     session_id = session_id or create_session("新会话")
-
-    # 优先级：拍照 > 上传图片
     image = camera_image if camera_image is not None else image
 
-    # 图片预处理
-    image_desc = pre_recognize_image(image)
+    extra_parts = []
 
-    # 图片 + YOLO
-    pil_img_info = None
-    yolo_result = None
     if image is not None:
         try:
-            pil_img_info = save_pil_image(image)
-            yolo_result = yolo_info.get_yolo_info("yolo11n.pt", pil_img_info["full_path"])
-        except Exception as e:
-            print(f"图片处理失败: {e}")
-            gr.Warning(f"图片处理失败: {e}")
+            from app.image_utils import pre_recognize_image, save_pil_image
+            import yolo_info
 
-    # 文档解析
-    doc_text = ""
+            image_desc = pre_recognize_image(image)
+            if image_desc:
+                extra_parts.append(f"图片识别结果：{image_desc}")
+
+            pil_info = save_pil_image(image)
+            yolo_result = yolo_info.get_yolo_info(config.yolo_model_path, pil_info["full_path"])
+            if yolo_result:
+                extra_parts.append(f"YOLO 检测结果：{yolo_result}")
+        except Exception as exc:
+            logger.warning("图片处理失败：%s", exc)
+            gr.Warning(f"图片处理失败：{exc}")
+
     if file_doc is not None:
         try:
-            doc_text = parse_document(file_doc)
-            if len(doc_text) > config.DOC_MAX_LENGTH:
-                doc_text = doc_text[: config.DOC_MAX_LENGTH] + "\n\n...（文档过长已截断）"
-        except Exception as e:
-            print(f"文档解析失败: {e}")
-            gr.Warning(f"文档解析失败: {e}")
+            doc_result = ingest_file(file_doc)
+            extra_parts.append(
+                f"[文档已加入知识库]《{doc_result['name']}》共 {doc_result['chunk_count']} 个分块，"
+                "回答时请优先检索并引用该文档。"
+            )
+        except Exception as exc:
+            logger.warning("文档入库失败：%s", exc)
+            gr.Warning(f"文档入库失败：{exc}")
 
-    # 组装最终用户输入
-    extra_parts = []
-    if image_desc:
-        extra_parts.append(f"图片识别结果：{image_desc}")
-    if yolo_result:
-        extra_parts.append(f"YOLO 检测结果：{yolo_result}")
-    if doc_text:
-        extra_parts.append(f"用户上传的文档内容：\n{doc_text}")
-
+    full_message = chat
     if extra_parts:
-        full_user_content = "\n\n".join(extra_parts) + f"\n\n用户的问题：{chat}\n\n请根据上述信息回答用户的问题。"
-    else:
-        full_user_content = chat
+        full_message = "\n\n".join(extra_parts) + f"\n\n用户的问题：{chat}"
 
-    # 保存用户消息
-    save_message(session_id, "user", chat)
+    user_display = chat + ("\n\n[📷 已附带图片]" if image is not None else "")
+    chatbot.append({"role": "user", "content": user_display})
 
-    # 聊天框展示
-    content_list = [{"type": "text", "text": chat}]
-    if image is not None:
-        try:
-            content_list.extend(build_chat_image_content(image))
-        except Exception as e:
-            print(f"保存临时图片失败: {e}")
-
-    chatbot.append({"role": "user", "content": content_list})
-
-    # Agent 调用
     try:
-        result = agent.invoke(
-            {"messages": [HumanMessage(content=full_user_content)]},
-            config={"configurable": {"thread_id": session_id}},
-        )
-        result = result["messages"][-1].content
-    except Exception as e:
-        print(f"Agent 调用失败: {e}")
-        result = "抱歉，我暂时无法处理您的请求，请稍后再试。"
+        result = chat_service.run(session_id, full_message)
+    except Exception as exc:
+        logger.exception("Agent 调用失败")
+        result = None
+        answer = f"抱歉，我暂时无法处理您的请求，请稍后再试。错误：{exc}"
+        chatbot.append({"role": "assistant", "content": answer})
+        choices = _refresh_sessions()
+        return "", None, None, chatbot, session_id, gr.Dropdown(choices=choices, value=session_id), ""
 
-    # 保存助手消息
-    save_message(session_id, "assistant", result)
-    chatbot.append({"role": "assistant", "content": result})
-
-    # 自动重命名会话
-    session_title = chat[:20] + ("..." if len(chat) > 20 else "")
-    rename_session(session_id, session_title)
-
+    chatbot.append({"role": "assistant", "content": result.answer})
+    sources_md = _sources_markdown(result.sources)
     choices = _refresh_sessions()
-    return "", None, None, chatbot, session_id, gr.Dropdown(choices=choices, value=session_id)
+    return (
+        "",
+        None,
+        None,
+        chatbot,
+        result.session_id,
+        gr.Dropdown(choices=choices, value=result.session_id),
+        sources_md,
+    )
+
+
+def _sources_markdown(sources) -> str:
+    if not sources:
+        return ""
+    unique = list(dict.fromkeys(sources))
+    lines = ["**知识库引用来源：**"]
+    lines.extend(f"- {name}" for name in unique)
+    return "\n".join(lines)
 
 
 def _refresh_sessions():
-    sessions = load_sessions()
-    return [(s["title"], s["id"]) for s in sessions]
+    return [(s["title"], s["id"]) for s in load_sessions()]
 
 
 def new_session():
     sid = create_session()
     choices = _refresh_sessions()
-    return sid, [], gr.Dropdown(choices=choices, value=sid)
+    return sid, [], gr.Dropdown(choices=choices, value=sid), ""
 
 
 def switch_session(session_id):
     if not session_id:
-        return session_id, []
+        return session_id, [], ""
     msgs = load_messages(session_id)
-    chatbot = []
-    for m in msgs:
-        chatbot.append({"role": m["role"], "content": m["content"]})
-    return session_id, chatbot
+    chatbot = [{"role": m["role"], "content": m["content"]} for m in msgs]
+    return session_id, chatbot, ""
 
 
 def delete_current_session(session_id):
     if session_id:
-        from app.session import delete_session as _delete
-
-        _delete(session_id)
+        delete_session(session_id)
     return new_session()
 
 
 def clear_chat():
-    return []
+    return [], ""
+
+
+def upload_kb_file(file):
+    if not file:
+        return "请先选择文件", _list_kb_documents()
+    try:
+        result = ingest_file(file)
+        mode = "向量索引" if result["embedded"] else "词法索引"
+        return f"入库成功：{result['name']}，共 {result['chunk_count']} 个分块（{mode}）", _list_kb_documents()
+    except Exception as exc:
+        return f"入库失败：{exc}", _list_kb_documents()
+
+
+def seed_kb():
+    result = ensure_knowledge_base()
+    return f"示例知识库初始化完成：新增 {result['seeded']} 个文档", _list_kb_documents()
+
+
+def _list_kb_documents():
+    docs = get_store().list_documents()
+    if not docs:
+        return "知识库为空。"
+    lines = ["| ID | 文档 | 分块数 | 入库时间 |", "|---|---|---|---|"]
+    for doc in docs:
+        lines.append(f"| `{doc['id'][:8]}` | {doc['name']} | {doc['chunk_count']} | {doc['created_at'][:19]} |")
+    return "\n".join(lines)
+
+
+def delete_kb_document(doc_id):
+    if not doc_id or not doc_id.strip():
+        return "请先粘贴要删除的文档 ID", _list_kb_documents()
+    deleted = get_store().delete_document(doc_id.strip())
+    return ("文档已删除" if deleted else "文档不存在"), _list_kb_documents()
+
+
+def search_kb(query):
+    query = (query or "").strip()
+    if not query:
+        return "请输入检索关键词"
+    chunks = search(get_store(), query, embedder=get_embedder())
+    if not chunks:
+        return "未找到相关内容"
+    lines = []
+    for index, chunk in enumerate(chunks, start=1):
+        name = chunk.get("document_name", "未知来源")
+        lines.append(f"**[{index}] {name}（分块 {chunk['chunk_index']}，{chunk['matched_by']}）**\n{chunk['content'][:300]}")
+    return "\n\n".join(lines)

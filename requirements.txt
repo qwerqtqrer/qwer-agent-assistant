@@ -5,6 +5,15 @@ langchain-openai>=0.2
 langgraph>=0.2
 zhipuai>=2.0
 
+# Web 服务
+fastapi>=0.115
+uvicorn>=0.30
+python-multipart>=0.0.9
+
+# 配置
+pydantic>=2.0
+pydantic-settings>=2.0
+
 # 数据库
 pymysql>=1.0
 

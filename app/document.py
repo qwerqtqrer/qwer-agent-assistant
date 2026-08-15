@@ -43,7 +43,7 @@ def parse_document(file_path):
         except ImportError:
             text = "[提示：请安装 openpyxl 库以解析 Excel]"
 
-    elif ext == ".txt":
+    elif ext in (".txt", ".md", ".markdown"):
         with open(file_path, "r", encoding="utf-8", errors="replace") as f:
             text = f.read()
 

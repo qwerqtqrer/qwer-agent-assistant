@@ -1,15 +1,22 @@
-"""智慧校园智能体 - 入口"""
+"""智慧校园 AI 智能体 - 统一入口（FastAPI + Gradio UI）。"""
 
-import gradio as gr
+import uvicorn
 
+from app.api.server import create_app
+from app.core.config import config
+from app.core.logging import setup_logging
+from app.rag import ensure_knowledge_base
 from app.session import init_tables
-from app.ui import CSS, build_ui
 
-# 启动时初始化数据库表
-init_tables()
+setup_logging(config.log_level)
 
-demo = build_ui()
+
+def main():
+    init_tables()
+    ensure_knowledge_base()
+    app = create_app(mount_ui=True)
+    uvicorn.run(app, host=config.host, port=config.port)
+
 
 if __name__ == "__main__":
-    demo.queue()
-    demo.launch(debug=False, theme=gr.themes.Soft(), css=CSS)
+    main()

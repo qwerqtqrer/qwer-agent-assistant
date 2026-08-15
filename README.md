@@ -1,121 +1,139 @@
 # 智慧校园 AI 智能体助手
 
-基于 **LangChain + Gradio** 构建的多功能 AI Agent 应用，集成大语言模型（GLM）、RAG、多模态识别、自然语言转 SQL 等能力，提供一站式的校园场景智能交互体验。
+基于 **LangGraph + LangChain + Gradio + FastAPI** 的 AI 应用开发实习项目。系统面向校园场景提供 RAG 知识库问答、Agent 工具调用（天气、邮件、SQL 查询、翻译、计算器）、多模态图片识别（GLM-4V + YOLO）与多会话持久化，并配套测试、Docker 部署与流式 API。
+
+> 本项目不包含任何密钥。所有敏感配置通过 `.env` 注入，仓库只提供 `.env.example`。
 
 ## 项目亮点
 
-- **AI Agent 架构** — 基于 LangChain 的 ReAct Agent，具备工具调用、多轮对话记忆、动态推理能力
-- **自然语言驱动的功能编排** — 用户通过自然语言触发天气查询、邮件发送、数据库查询等操作，由 LLM 自主决策工具调用链
-- **多模态输入支持** — 集成 GLM-4V 视觉模型与 YOLO 目标检测，支持图片理解与拍照识别
-- **模块化工程体系** — 清晰的分层架构（UI → 业务 → Agent → 工具 → 基础设施），低耦合、易扩展
+- **RAG 知识库问答**：文档解析（PDF/Word/Excel/TXT/Markdown）→ 切块 → SQLite FTS5 中文检索 → 可选向量重排（智谱 embedding-3），回答带来源引用
+- **LangGraph Agent 编排**：显式图结构（检索 → 模型 → 工具循环），8 个可插拔工具，支持多轮历史恢复与失败降级
+- **双后端存储**：未配置 MySQL 时自动使用 SQLite 演示模式，零配置即可本地运行；配置 MySQL 后自动切换，会话与知识库互不干扰
+- **工程化交付**：FastAPI SSE 流式接口、Gradio 双 Tab 界面、pytest 单测、Docker Compose、GitHub Actions CI、初始化 SQL
+- **安全加固**：LLM 生成 SQL 默认只读白名单、禁止多语句与系统表、计算器 AST 白名单求值、邮件失败返回真实错误
 
-## 核心能力
+## 技术栈
 
-| 能力 | 技术实现 | 场景 |
-|------|----------|------|
-| AI Agent 对话 | LangChain Agent + ReAct + InMemorySaver | 智能问答、任务编排 |
-| 自然语言 → SQL | ChatOpenAI 调用 GLM 生成 SQL | 查询课程、成绩、通知 |
-| 图片理解 | GLM-4V 多模态模型 | 识别图片内容 |
-| 目标检测 | YOLO | 图片中物体检测 |
-| 文档解析 | pdfplumber / python-docx / openpyxl | PDF、Word、Excel 内容提取 |
-| 天气查询 | 实时天气与出行建议 |
-| 邮件发送 | QQ SMTP (SSL) | 发送文本邮件 |
-| 翻译 / 计算器 | LLM 调用 + 安全沙箱 | 多语言翻译、数学计算 |
-| 多会话管理 | MySQL 持久化 | 会话创建、切换、删除、历史消息回溯 |
+| 层次 | 技术 |
+------|------|
+| 前端 | Gradio 6 |
+| API | FastAPI + SSE |
+| Agent | LangGraph + LangChain + LangChain-OpenAI |
+| RAG | SQLite FTS5（trigram）+ 可选 OpenAI 兼容 Embedding |
+| 大模型 | 智谱 GLM（OpenAI 兼容接口） |
+| 数据库 | MySQL 8 / SQLite |
+| 工程 | pytest、Docker、docker-compose、GitHub Actions |
 
-## 后端工程体系
-
-### 分层架构
+## 架构总览
 
 ```
-┌──────────────────────────────────────────┐
-│            UI 层 (app/ui.py)             │
-│     Gradio 组件布局 + 事件绑定            │
-├──────────────────────────────────────────┤
-│         业务层 (app/chat.py)             │
-│     对话流程编排、输入预处理、状态管理      │
-├──────────────────────────────────────────┤
-│        Agent 层 (app/agent_setup.py)      │
-│    LangChain Agent + LLM + 记忆 + 工具    │
-├──────────────────────────────────────────┤
-│          工具层 (app/tools/*)             │
-│    @tool 装饰器注册，每个工具独立模块       │
-├──────────────────────────────────────────┤
-│     基础设施层 (app/database.py 等)       │
-│     MySQL 连接、文档解析、图片处理          │
-├──────────────────────────────────────────┤
-│         配置层 (app/config.py)            │
-│     基于 .env 的统一配置管理               │
-└──────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────┐
+│                      接入层                                │
+│   Gradio UI（/ui）           FastAPI（/api/*，SSE 流式）    │
+├────────────────────────────────────────────────────────────┤
+│                   服务层（app/services）                    │
+│        会话恢复 → Agent 编排 → 结果持久化 → 引用返回          │
+├────────────────────────────────────────────────────────────┤
+│                   Agent 层（app/agent）                    │
+│   LangGraph: retrieve → agent → tools 循环 → end            │
+├────────────────────────────────────────────────────────────┤
+│          RAG 层（app/rag）        工具层（app/tools）        │
+│   解析 / 切块 / 索引 / 检索       天气 / 邮件 / SQL / 翻译    │
+│   SQLite FTS5 + Embedding       计算器 / 校园数据            │
+├────────────────────────────────────────────────────────────┤
+│   基础设施（app/core、app/database、app/session）           │
+│   配置 / 日志 / LLM 工厂 / MySQL-SQLite 双后端 / 会话持久化   │
+└────────────────────────────────────────────────────────────┘
 ```
-
-### 工程特性
-
-- **配置与代码分离** — 密钥、API Key 等敏感信息统一由 `.env` 管理，不侵入代码
-- **延迟加载** — 重型依赖（pdfplumber, ZhipuAI SDK）在调用时按需导入，优化启动速度
-- **安全防护** — SQL 参数化查询防注入、计算器正则白名单 + 沙箱、SQL 语句正则校验
-- **可扩展设计** — 新增工具只需创建一个模块 + 在 `tools/__init__.py` 注册一行即可接入 Agent
-- **幂等初始化** — 数据库建表使用 `IF NOT EXISTS`，重复启动安全
 
 ## 快速开始
 
-### 环境要求
+### 方式一：演示模式（无需任何密钥）
 
-- Python 3.9+
-- MySQL 8.0+
-
-### 安装
+未配置 `.env` 或只配置部分项时，应用自动使用 SQLite 与演示模型运行，知识库会自动载入 `knowledge_base/` 下的示例文档。
 
 ```bash
-pip install -r requirements.txt
-```
-
-### 配置
-
-创建 `.env` 文件，填写以下配置项：
-
-```ini
-# 智谱 AI（必填）
-zhipuai_api_key=your_api_key_here
-zhipuai_base_url=https://open.bigmodel.cn/api/paas/v4
-
-# MySQL（必填）
-DB_HOST=localhost
-DB_PORT=3306
-DB_USER=root
-DB_PASSWORD=your_password_here
-
-# QQ 邮箱 SMTP（选填）
-MAIL_HOST=smtp.qq.com
-MAIL_USER=you@qq.com
-MAIL_PASS=your_smtp_auth_code
-
-# 高德地图 API（选填）
-AMAP_API_KEY=your_amap_key_here
-```
-
-### 启动
-
-```bash
+python -m pip install -r requirements.txt -r requirements-dev.txt
 python main.py
 ```
 
-启动后浏览器访问 `http://127.0.0.1:7860` 即可使用。
+访问 `http://127.0.0.1:8000`（自动跳转 `/ui`），API 文档在 `http://127.0.0.1:8000/api/docs`。
 
-## 数据流
+只启动 Gradio 界面：
 
+```bash
+python gradio_app.py
 ```
-用户输入（文本/图片/文档）
-        │
-        ▼
-app/ui.py ──► app/chat.py ──► 预处理（图片识别 / YOLO / 文档解析）
-                                   │
-                                   ▼
-                            app/agent_setup.py (Agent 推理)
-                                   │
-                                   ▼
-                            app/tools/*（工具执行）
-                                   │
-                                   ▼
-                            返回结果 ──► 存入 MySQL ──► 更新 UI
+
+### 方式二：完整模式（LLM + MySQL）
+
+1. 复制环境模板并填写：`cp .env.example .env`
+2. 初始化数据库：`mysql -u root -p < scripts/init_db.sql`
+3. 在 `.env` 中填写 `zhipuai_api_key` 与 MySQL 连接信息，并将 `DEMO_MODE` 设为 `0`
+4. 启动：`python main.py`
+
+### 方式三：Docker Compose
+
+```bash
+docker compose up --build
 ```
+
+Compose 会启动 MySQL 并执行初始化脚本，应用监听 `8000` 端口。
+
+## API 概览
+
+| 方法 | 路径 | 说明 |
+------|------|------|
+| POST | `/api/chat` | SSE 流式对话（token / done / error） |
+| GET | `/api/health` | 健康检查：LLM、数据库、RAG 索引 |
+| GET / POST / DELETE | `/api/sessions` | 会话列表、创建、删除 |
+| GET | `/api/sessions/{id}/messages` | 会话历史消息 |
+| POST | `/api/rag/documents` | 上传文档入库 |
+| GET / DELETE | `/api/rag/documents` | 文档列表 / 删除 |
+| POST | `/api/rag/search` | 知识库检索测试 |
+| POST | `/api/rag/seed` | 初始化示例知识库 |
+
+SSE 事件示例：
+
+```text
+data: {"type": "start", "session_id": "..."}
+data: {"type": "token", "content": "图书馆"}
+data: {"type": "done", "answer": "...", "sources": ["campus_guide.md"]}
+```
+
+## 项目结构
+
+```text
+app/
+  core/        配置、日志、错误、LLM 工厂
+  rag/         文档解析、切块、存储、检索、入库
+  agent/       LangGraph 编排
+  services/    对话服务
+  api/         FastAPI 路由与组装
+  tools/       Agent 工具（含安全校验）
+  session.py   会话持久化
+  ui.py        Gradio 界面
+knowledge_base/  示例知识库文档
+scripts/init_db.sql   MySQL 初始化脚本
+tests/         pytest 测试
+```
+
+## 安全设计
+
+- 密钥只从环境变量读取，`.env` 已被 gitignore
+- SQL 工具默认只读：仅允许 `SELECT` / `WITH`，拦截多语句、注释绕过、系统库与危险函数
+- 计算器使用 AST 节点白名单求值，禁用 `eval`
+- 邮件工具校验收件人格式，失败时返回真实错误，不再伪装成功
+- 检索查询经 FTS5 安全短语包装，避免特殊字符注入
+
+## 测试
+
+```bash
+python -m pytest -q
+```
+
+测试覆盖计算器安全、SQL 白名单、RAG 切块与检索、会话持久化、Agent 流式与非流式对话、FastAPI 接口。
+
+## 简历项目描述
+
+可直接用于简历与面试准备的版本见 [docs/RESUME_PROJECT.md](docs/RESUME_PROJECT.md)，架构细节见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。
