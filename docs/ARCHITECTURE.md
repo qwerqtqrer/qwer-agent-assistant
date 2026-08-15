@@ -9,7 +9,7 @@
 - Agent 层：`app/agent/graph.py` 使用 LangGraph 显式编排节点与边
 - RAG 层：`app/rag/` 提供解析、切块、索引、检索、入库
 - 工具层：`app/tools/` 每个工具一个模块，统一注册到 `ALL_TOOLS`
-- 基础设施层：`app/core/`（配置/日志/LLM 工厂）、`app/database.py`（双后端）、`app/session.py`
+- 基础设施层：`app/core/`（配置/日志/LLM 工厂）、`app/database.py`（双后端）、`app/session.py`、`app/bootstrap.py`（启动降级）
 
 ## 2. Agent 图
 
@@ -23,7 +23,7 @@ START → retrieve → agent ──有工具调用──→ tools ──→ agen
 - `agent`：系统提示词携带 RAG 上下文，模型决定是直接回答还是调用工具
 - `tools`：`ToolNode` 执行工具并回传结果，循环直到模型不再产生工具调用
 
-未配置 LLM 时，`app/core/llm.py` 返回确定性 `DemoChatModel`，图仍可运行，便于离线演示和 CI。
+未配置 LLM 时，`app/core/llm.py` 返回确定性 `DemoChatModel`，图仍可运行，便于离线演示与接口自检。
 
 ## 3. RAG 流程
 

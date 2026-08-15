@@ -1,6 +1,6 @@
 # 智慧校园 AI 智能体助手
 
-基于 **LangGraph + LangChain + Gradio + FastAPI** 的 AI 应用开发实习项目。系统面向校园场景提供 RAG 知识库问答、Agent 工具调用（天气、邮件、SQL 查询、翻译、计算器）、多模态图片识别（GLM-4V + YOLO）与多会话持久化，并配套测试、Docker 部署与流式 API。
+基于 **LangGraph + LangChain + Gradio + FastAPI** 的 AI 应用开发实习项目。系统面向校园场景提供 RAG 知识库问答、Agent 工具调用（天气、邮件、SQL 查询、翻译、计算器）、多模态图片识别（GLM-4V + YOLO）与多会话持久化，并提供 Docker 部署与流式 API。
 
 > 本项目不包含任何密钥。所有敏感配置通过 `.env` 注入，仓库只提供 `.env.example`。
 
@@ -9,7 +9,7 @@
 - **RAG 知识库问答**：文档解析（PDF/Word/Excel/TXT/Markdown）→ 切块 → SQLite FTS5 中文检索 → 可选向量重排（智谱 embedding-3），回答带来源引用
 - **LangGraph Agent 编排**：显式图结构（检索 → 模型 → 工具循环），8 个可插拔工具，支持多轮历史恢复与失败降级
 - **双后端存储**：未配置 MySQL 时自动使用 SQLite 演示模式，零配置即可本地运行；配置 MySQL 后自动切换，会话与知识库互不干扰
-- **工程化交付**：FastAPI SSE 流式接口、Gradio 双 Tab 界面、pytest 单测、Docker Compose、GitHub Actions CI、初始化 SQL
+- **工程化交付**：FastAPI SSE 流式接口、Gradio 双 Tab 界面、Docker Compose、GitHub Actions 语法检查、初始化 SQL
 - **安全加固**：LLM 生成 SQL 默认只读白名单、禁止多语句与系统表、计算器 AST 白名单求值、邮件失败返回真实错误
 
 ## 技术栈
@@ -22,7 +22,7 @@
 | RAG | SQLite FTS5（trigram）+ 可选 OpenAI 兼容 Embedding |
 | 大模型 | 智谱 GLM（OpenAI 兼容接口） |
 | 数据库 | MySQL 8 / SQLite |
-| 工程 | pytest、Docker、docker-compose、GitHub Actions |
+| 工程 | Docker、docker-compose、GitHub Actions |
 
 ## 架构总览
 
@@ -53,7 +53,7 @@
 未配置 `.env` 或只配置部分项时，应用自动使用 SQLite 与演示模型运行，知识库会自动载入 `knowledge_base/` 下的示例文档。
 
 ```bash
-python -m pip install -r requirements.txt -r requirements-dev.txt
+python -m pip install -r requirements.txt
 python main.py
 ```
 
@@ -111,11 +111,14 @@ app/
   services/    对话服务
   api/         FastAPI 路由与组装
   tools/       Agent 工具（含安全校验）
+  bootstrap.py 启动引导：存储初始化与降级
   session.py   会话持久化
   ui.py        Gradio 界面
+main.py        FastAPI + Gradio 统一入口
+gradio_app.py  Gradio 独立入口
+yolo_info.py   YOLO 目标检测封装
 knowledge_base/  示例知识库文档
-scripts/init_db.sql   MySQL 初始化脚本
-tests/         pytest 测试
+scripts/init_db.sql  MySQL 初始化脚本
 ```
 
 ## 安全设计
@@ -125,14 +128,6 @@ tests/         pytest 测试
 - 计算器使用 AST 节点白名单求值，禁用 `eval`
 - 邮件工具校验收件人格式，失败时返回真实错误，不再伪装成功
 - 检索查询经 FTS5 安全短语包装，避免特殊字符注入
-
-## 测试
-
-```bash
-python -m pytest -q
-```
-
-测试覆盖计算器安全、SQL 白名单、RAG 切块与检索、会话持久化、Agent 流式与非流式对话、FastAPI 接口。
 
 ## 简历项目描述
 

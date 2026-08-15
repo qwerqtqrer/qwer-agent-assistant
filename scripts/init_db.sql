@@ -11,7 +11,7 @@ USE school;
 
 CREATE TABLE IF NOT EXISTS student (
     id INT PRIMARY KEY AUTO_INCREMENT,
-    username VARCHAR(64) NOT NULL,
+    username VARCHAR(64) NOT NULL UNIQUE,
     password VARCHAR(128) NOT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
@@ -22,7 +22,8 @@ CREATE TABLE IF NOT EXISTS courses (
     weekday VARCHAR(16) NOT NULL,
     start_time VARCHAR(16) NOT NULL,
     end_time VARCHAR(16) NOT NULL,
-    location VARCHAR(128)
+    location VARCHAR(128),
+    UNIQUE KEY uk_courses (student_name, course_name)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS grades (
@@ -30,14 +31,16 @@ CREATE TABLE IF NOT EXISTS grades (
     student_name VARCHAR(64) NOT NULL,
     course_name VARCHAR(128) NOT NULL,
     score DECIMAL(5,1) NOT NULL,
-    semester VARCHAR(32) NOT NULL
+    semester VARCHAR(32) NOT NULL,
+    UNIQUE KEY uk_grades (student_name, course_name, semester)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS notices (
     id INT PRIMARY KEY AUTO_INCREMENT,
     title VARCHAR(255) NOT NULL,
     content TEXT,
-    publish_time DATETIME NOT NULL
+    publish_time DATETIME NOT NULL,
+    UNIQUE KEY uk_notices (title)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 INSERT INTO student (username, password) VALUES ('2024001', 'demo123') ON DUPLICATE KEY UPDATE username=username;
@@ -103,7 +106,8 @@ USE abc;
 CREATE TABLE IF NOT EXISTS student (
     id INT PRIMARY KEY AUTO_INCREMENT,
     name VARCHAR(64) NOT NULL,
-    age VARCHAR(16)
+    age VARCHAR(16),
+    UNIQUE KEY uk_student_name (name)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS students_age (
@@ -120,7 +124,8 @@ CREATE TABLE IF NOT EXISTS fruit (
     fruit_name VARCHAR(64) NOT NULL,
     price DECIMAL(10,2) NOT NULL,
     weight DECIMAL(10,2),
-    created_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    created_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_fruit (fruit_name)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 INSERT INTO fruit (fruit_name, price, weight) VALUES
@@ -133,14 +138,16 @@ USE newsdb;
 
 CREATE TABLE IF NOT EXISTS category (
     id INT PRIMARY KEY AUTO_INCREMENT,
-    NAME VARCHAR(64) NOT NULL
+    NAME VARCHAR(64) NOT NULL,
+    UNIQUE KEY uk_category (NAME)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS news (
     id INT PRIMARY KEY AUTO_INCREMENT,
     title VARCHAR(255) NOT NULL,
     category_id INT,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_news (title)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 INSERT INTO category (NAME) VALUES ('校园'), ('科技'), ('体育') ON DUPLICATE KEY UPDATE NAME=NAME;

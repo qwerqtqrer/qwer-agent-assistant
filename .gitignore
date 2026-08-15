@@ -5,6 +5,7 @@ __pycache__/
 .pytest_cache/
 upload_cache/
 data/
+yolo11n.pt
 .vscode/
 .idea/
 *.pyc

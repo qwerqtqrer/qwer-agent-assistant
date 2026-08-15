@@ -2,15 +2,15 @@
 
 import gradio as gr
 
+from app.bootstrap import bootstrap_storage
 from app.core.logging import setup_logging
 from app.rag import ensure_knowledge_base
-from app.session import init_tables
 from app.ui import CSS, build_ui
 
 
 def main():
     setup_logging()
-    init_tables()
+    bootstrap_storage()
     ensure_knowledge_base()
     demo = build_ui()
     demo.queue()

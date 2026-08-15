@@ -20,6 +20,15 @@ from app.session import (
 logger = get_logger("app.chat")
 
 
+def _resolve_yolo_model() -> str:
+    """按配置路径查找 YOLO 模型，找不到时回退到上级目录。"""
+    candidates = [config.yolo_model_path, os.path.join("..", "yolo11n.pt")]
+    for path in candidates:
+        if os.path.exists(path):
+            return path
+    return ""
+
+
 def chat_fn(chat, image, camera_image, chatbot, session_id, file_doc):
     """核心对话函数。"""
     session_id = session_id or create_session("新会话")
@@ -36,13 +45,14 @@ def chat_fn(chat, image, camera_image, chatbot, session_id, file_doc):
             if image_desc:
                 extra_parts.append(f"图片识别结果：{image_desc}")
 
-            if os.path.exists(config.yolo_model_path):
+            yolo_path = _resolve_yolo_model()
+            if yolo_path:
                 pil_info = save_pil_image(image)
-                yolo_result = yolo_info.get_yolo_info(config.yolo_model_path, pil_info["full_path"])
+                yolo_result = yolo_info.get_yolo_info(yolo_path, pil_info["full_path"])
                 if yolo_result:
                     extra_parts.append(f"YOLO 检测结果：{yolo_result}")
             else:
-                gr.Warning(f"未找到 YOLO 模型文件（{config.yolo_model_path}），已跳过目标检测")
+                gr.Warning("未找到 YOLO 模型文件，已跳过目标检测")
         except Exception as exc:
             logger.warning("图片处理失败：%s", exc)
             gr.Warning(f"图片处理失败：{exc}")
